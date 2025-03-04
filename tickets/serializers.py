@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import User, Event, Ticket, Order
+from django.utils.timezone import now
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
@@ -19,24 +20,73 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.save()
         return user
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ["id", "email", "username", "first_name", "last_name", "phone_no"]
-
 class EventSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = "__all__"
+
+    def update(self, instance, validated_data):
+        updated_fields = []
+        
+        if "total_tickets" in validated_data:
+            old_total = instance.total_tickets
+            new_total = validated_data["total_tickets"]
+            ticket_difference = new_total - old_total
+            if abs(ticket_difference) < 0:
+                raise serializers.ValidationError({"total_tickets": "Total tickets cannot be less than already sold tickets."})
+            instance.available_tickets += ticket_difference
+
+        if "date" in validated_data:
+            if validated_data["date"].date() < now().date():
+                raise serializers.ValidationError({"date": "Event date must be in the future."})
+
+        for attr, value in validated_data.items():
+            if getattr(instance, attr) != value: 
+                updated_fields.append(attr)
+                setattr(instance, attr, value)
+
+        instance.save()
+
+        return instance
 
 class TicketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ticket
         fields = "__all__"
 
+    def validate(self, data):
+        """ Ensure the event has enough available tickets. """
+        event = data["event"]
+        quantity = data["quantity"]
+
+        if quantity < 1 or quantity > 5:
+            raise serializers.ValidationError({"quantity": "You can only reserve between 1 and 5 tickets."})
+        
+        if event.available_tickets < quantity:
+            raise serializers.ValidationError(
+                f"Not enough tickets available for event {event.name}."
+            )
+        return data
+
 class OrderSerializer(serializers.ModelSerializer):
-    tickets = TicketSerializer(many=True, read_only=True)
+    tickets = TicketSerializer(many=True, write_only=True)  # Accept multiple tickets
 
     class Meta:
         model = Order
-        fields = ["id", "user", "status", "created_at", "tickets"]
+        fields = ["id", "status", "created_at", "tickets"]  # Exclude `user`
+
+    def create(self, validated_data):
+        """ Create an order and reserve tickets. """
+        tickets_data = validated_data.pop("tickets")
+        order = Order.objects.create(**validated_data)
+
+        for ticket_data in tickets_data:
+            Ticket.objects.create(order=order, **ticket_data)
+
+        return order
+
+
+class PaymentCheckSerializer(serializers.Serializer):
+    """Handles payment check response"""
+    status = serializers.ChoiceField(choices=["success", "failed"])
+    message = serializers.CharField()

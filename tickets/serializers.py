@@ -1,6 +1,8 @@
-from rest_framework import serializers
 from .models import User, Event, Ticket, Order
+
 from django.utils.timezone import now
+
+from rest_framework import serializers
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
@@ -69,12 +71,15 @@ class TicketSerializer(serializers.ModelSerializer):
         return data
 
 class OrderSerializer(serializers.ModelSerializer):
-    tickets = TicketSerializer(many=True, write_only=True)  # Accept multiple tickets
+    tickets = TicketSerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
-        fields = ["id", "status", "created_at", "tickets"]  # Exclude `user`
+        fields = ["id", "status", "created_at", "tickets", "total_price"]
 
+    def get_total_price(self, obj):
+        return obj.total_price
+    
     def create(self, validated_data):
         """ Create an order and reserve tickets. """
         tickets_data = validated_data.pop("tickets")
@@ -84,9 +89,3 @@ class OrderSerializer(serializers.ModelSerializer):
             Ticket.objects.create(order=order, **ticket_data)
 
         return order
-
-
-class PaymentCheckSerializer(serializers.Serializer):
-    """Handles payment check response"""
-    status = serializers.ChoiceField(choices=["success", "failed"])
-    message = serializers.CharField()

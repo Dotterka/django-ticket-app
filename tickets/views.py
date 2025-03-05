@@ -6,6 +6,7 @@ from .serializers import EventSerializer, TicketSerializer, OrderSerializer, Reg
 from .permissions import IsAdminOrReadOnly, IsAdminOrOwner, OnlyGetMethod, DisableMethodsPermission
 
 from django.db import transaction
+from django.utils.timezone import now
 
 from rest_framework import viewsets, generics, status
 from rest_framework.views import APIView
@@ -79,6 +80,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                 # Check if the user already has a reservation for this event
                 existing_ticket = Ticket.objects.filter(order=order, event=event, user=user).first()
                 if existing_ticket:
+                    if now() >= order.expires_at:
+                        order.expire_order()
+                        return Response({"message": "Order expired."}, status=status.HTTP_204_NO_CONTENT)
                     if quantity == 0:
                         existing_ticket.delete()
                         if not order.tickets.exists():  # Order was also deleted
@@ -120,7 +124,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"error": "Order is not pending, cannot process payment."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        if now() >= order.expires_at:
+            order.expire_order()
+            return Response({"message": "Order expired."}, status=status.HTTP_204_NO_CONTENT)
         try:
             payment_api_url = "http://localhost:8000/api/payments/"
             response = requests.get(payment_api_url)

@@ -149,5 +149,13 @@ class Order(models.Model):
             self.status = self.Status.REFUND
             self.save()
 
+    @classmethod
+    def expire_all_orders(cls):
+        """Expire all pending orders that have passed their expiration time."""
+        expired_orders = cls.objects.filter(status=cls.Status.PENDING, expires_at__lte=now())
+        
+        for order in expired_orders:
+            order.expire_order()
+
     def __str__(self):
         return f"Order {self.id} - {self.user.email} - {self.get_status_display()}"

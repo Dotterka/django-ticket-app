@@ -5,6 +5,9 @@ services:
       - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data 
+    networks:
+      - app_network
+
   web:
     build: .
     command: >
@@ -17,6 +20,26 @@ services:
       - db
     env_file:
       - .env
+    networks:
+      - app_network
+  
+  cron:
+    build: .
+    command: sh -c "sleep 10 && crontab /app/crontab && cron -f"
+    volumes:
+      - .:/app
+      - ./crontab:/app/crontab 
+    depends_on:
+      - db
+      - web
+    env_file:
+      - .env
+    networks:
+      - app_network
 
 volumes:
   postgres_data:
+
+networks:
+  app_network:
+    driver: bridge
